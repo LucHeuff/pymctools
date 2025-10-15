@@ -1,0 +1,6 @@
+# Python things
+.coverage
+.hypothesis/
+
+# Files
+dev.py
