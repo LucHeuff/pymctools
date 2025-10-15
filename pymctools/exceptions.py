@@ -1,0 +1,10 @@
+class PyMCToolsError(Exception):
+    """Base exception for pymctools."""
+
+
+class GroupNotFoundError(PyMCToolsError):
+    """Raised when a group is not found in InferenceData."""
+
+
+class CoordinateNotFoundError(PyMCToolsError):
+    """Raised when coordinates are not found in InferenceData dimensions."""
