@@ -12,3 +12,7 @@ class CoordinateNotFoundError(PyMCToolsError):
 
 class ModelNotFoundError(PyMCToolsError):
     """Raised when model name is not found in InferenceData group."""
+
+
+class LogLikelihoodNotFoundError(PyMCToolsError):
+    """Raised when log-likelihood is not found in InferenceData."""

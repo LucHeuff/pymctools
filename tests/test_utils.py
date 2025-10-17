@@ -9,6 +9,7 @@ from numpy.testing import assert_almost_equal
 from pymctools.exceptions import (
     CoordinateNotFoundError,
     GroupNotFoundError,
+    LogLikelihoodNotFoundError,
     ModelNotFoundError,
 )
 from pymctools.utils import (
@@ -21,6 +22,7 @@ from pymctools.utils import (
     index,
     maximise,
     normalise,
+    outlier_indicators,
     scale,
     standardise,
     to_df,
@@ -311,3 +313,22 @@ def test_get_predictive_model_raises(continuous_idata: az.InferenceData) -> None
 
     with pytest.raises(ModelNotFoundError):
         get_predictive_model(data, group="posterior_predictive", model_name="fiets")
+
+
+def test_outlier_indicators() -> None:
+    """Test outlier_indicators()."""
+    idata = az.load_arviz_data("centered_eight")
+
+    outliers = outlier_indicators(idata)  # pyright: ignore[reportArgumentType]
+
+    columns = ["obs", "school", "obs_p_waic", "obs_pareto_k", "scores"]
+
+    assert isinstance(outliers, pl.DataFrame)
+    assert outliers.shape == (8, 5), "Outliers has incorrect shape"
+    assert outliers.columns == columns, "Outliers has incorrect columns"
+
+
+def test_outlier_indicators_raises(continuous_idata: az.InferenceData) -> None:
+    """Test if outlier_indicators() raises the correct exception."""
+    with pytest.raises(LogLikelihoodNotFoundError):
+        outlier_indicators(continuous_idata)  # pyright: ignore[reportArgumentType]

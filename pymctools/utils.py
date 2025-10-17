@@ -1,13 +1,15 @@
 from collections.abc import Hashable
-from typing import Literal
+from typing import Literal, TypedDict
 
 import arviz as az
+import numpy as np
 import polars as pl
 import xarray as xr
 
 from pymctools.exceptions import (
     CoordinateNotFoundError,
     GroupNotFoundError,
+    LogLikelihoodNotFoundError,
     ModelNotFoundError,
 )
 
@@ -200,7 +202,7 @@ def get_predictive_model(
         model_name (Optional): name of model Dataset.
 
     Returns:
-        polars.DataFrame with frequency per group for each variable,
+        polars.DataFrame with draws from model predictions,
         combined with constant data if available
 
     Raises:
@@ -223,7 +225,98 @@ def get_predictive_model(
     return data
 
 
-# TODO add_outlier_indicators
+# --- Adding statistics
+
+
+class PostfixDict(TypedDict):
+    """Type hint for postfix dictionary."""
+
+    waic: str
+    psis: str
+
+
+def outlier_indicators(
+    idata: az.InferenceData,
+    postfixes: PostfixDict | None = None,
+    index_name: str = "obs",
+) -> pl.DataFrame:
+    """Create a dataframe with outlier indicators based on the model.
+
+    NOTE: requires log_likelihood to be calculated on the InferenceData!
+    Adds to constant_data if these are available in the InferenceData.
+
+    Args:
+        idata: Inferencedata, output from pymc models.
+        postfixes (Optional): Allows changing postfixes for "waic" and "psis"
+        index_name (Optional): Allows chaning index name for rows
+
+    Returns:
+        polars.DataFrame with outlier indicators for each model,
+        combined with constant data if available.
+
+    Raises:
+        LogLikelihoodNotFoundError: if log_likelihood is unavailable.
+        CoordinateNotFoundError: if a coordinate from constant data is missing
+
+    """
+    if postfixes is None:
+        postfixes = {"waic": "p_waic", "psis": "pareto_k"}
+
+    if "log_likelihood" not in idata.groups():
+        msg = """
+        Provided InferenceData has no log_likelihood group.
+        Use pm.compute_log_likelihood to compute these.
+        """
+        raise LogLikelihoodNotFoundError(msg)
+
+    # Getting names of variables
+    var_names = idata["log_likelihood"].data_vars
+    dfs = []  # Container for different dataframes
+
+    # calculating relative MCMC efficiency, this is needed for az.loo
+    # taken from the source code of az.loo
+
+    # Taking values from the posterior since these are in common to all variables
+    n_samples = len(idata["posterior"].mean(("chain", "draw")))
+    n_chains = len(idata["posterior"]["chain"])  # only need this once
+    if n_chains == 1:
+        reff = 1.0
+    else:
+        ess_p = az.ess(idata["posterior"], method="mean")
+        reff = (
+            np.hstack([ess_p[v].values.flatten() for v in ess_p.data_vars]).mean()
+            / n_samples
+        )
+
+    for var in var_names:
+        # reshaping log_likelihood data
+        log_likelihood = idata["log_likelihood"][var].stack(
+            __sample__=("chain", "draw")
+        )
+
+        # Calculating p_waic, taken from source code of az.waic
+        p_waic = to_df(log_likelihood.var(dim="__sample__")).rename(
+            {str(name): f"{name}_{postfixes['waic']}" for name in var_names}
+        )
+        dfs.append(p_waic)
+
+        _, pareto_k = az.psislw(-log_likelihood, reff)
+
+        pareto_k = to_df(pareto_k).rename(
+            {"pareto_shape": f"{var}_{postfixes['psis']}"}
+        )
+        dfs.append(pareto_k)
+
+    data = pl.concat(dfs, how="align").with_row_index(index_name)
+
+    if "constant_data" in idata.groups():
+        coords = check_coordinates(idata, data)
+        constant = to_df(idata["constant_data"])
+        data = data.join(constant, on=coords)
+
+    return data
+
+
 # TODO get_covariance_matrix
 # TODO get_ellipse
 # TODO get_ellipse_data
