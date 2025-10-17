@@ -1,6 +1,7 @@
 # Python things
 .coverage
 .hypothesis/
+__pycache__
 
 # Files
 dev.py
