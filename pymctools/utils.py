@@ -5,7 +5,11 @@ import arviz as az
 import polars as pl
 import xarray as xr
 
-from pymctools.exceptions import CoordinateNotFoundError, GroupNotFoundError
+from pymctools.exceptions import (
+    CoordinateNotFoundError,
+    GroupNotFoundError,
+    ModelNotFoundError,
+)
 
 # ---- Statistical calculations over pl.Series
 
@@ -51,11 +55,6 @@ def to_df(data: xr.Dataset | xr.DataArray) -> pl.DataFrame:
 # ---- Predictive Summaries
 
 PredictiveGroups = Literal["prior_predictive", "posterior_predictive"]
-
-
-# TODO test coverage fixen met custom inference data dingen
-# (Checken of dat handig werkt met fixtures voor de andere functies die mss hetzelfde doen)
-# https://python.arviz.org/en/stable/api/generated/arviz.InferenceData.html#arviz.InferenceData
 
 
 def check_group(idata: az.InferenceData, group: PredictiveGroups) -> None:
@@ -189,7 +188,41 @@ def get_predictive_counts(
     return data
 
 
-# TODO get_predictive_model -> Add new fixture?
+def get_predictive_model(
+    idata: az.InferenceData, group: PredictiveGroups, model_name: str = "model"
+) -> pl.DataFrame:
+    """Convert prior or predictive model to dataframe.
+
+    Args:
+        idata: InferenceData, output from pymc models.
+        group: 'posterior_predictive' or 'prior_predictive', indicating which
+            data should be converted
+        model_name (Optional): name of model Dataset.
+
+    Returns:
+        polars.DataFrame with frequency per group for each variable,
+        combined with constant data if available
+
+    Raises:
+        GroupNotFoundError: if the desired group does not exist
+        CoordinateNotFoundError: if a coordinate from constant data is missing
+        ModelNotFoundError: if the model named in model_name does not exist
+    """
+    check_group(idata, group)
+
+    if model_name not in list(idata[group]):
+        msg = f"InferenceData.{group} does not contain {model_name}"
+        raise ModelNotFoundError(msg)
+
+    data = to_df(idata[group][model_name].mean("chain"))
+
+    if "constant_data" in idata.groups():
+        coords = check_coordinates(idata, data)
+        constant = to_df(idata["constant_data"])
+        data = data.join(constant, on=coords)
+    return data
+
+
 # TODO add_outlier_indicators
 # TODO get_covariance_matrix
 # TODO get_ellipse

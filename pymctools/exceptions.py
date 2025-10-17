@@ -8,3 +8,7 @@ class GroupNotFoundError(PyMCToolsError):
 
 class CoordinateNotFoundError(PyMCToolsError):
     """Raised when coordinates are not found in InferenceData dimensions."""
+
+
+class ModelNotFoundError(PyMCToolsError):
+    """Raised when model name is not found in InferenceData group."""

@@ -6,12 +6,17 @@ import polars as pl
 import pytest
 import xarray as xr
 from numpy.testing import assert_almost_equal
-from pymctools.exceptions import CoordinateNotFoundError, GroupNotFoundError
+from pymctools.exceptions import (
+    CoordinateNotFoundError,
+    GroupNotFoundError,
+    ModelNotFoundError,
+)
 from pymctools.utils import (
     center,
     check_coordinates,
     check_group,
     get_predictive_counts,
+    get_predictive_model,
     get_predictive_summary,
     index,
     maximise,
@@ -274,3 +279,35 @@ def test_get_predictive_counts(counts_idata: az.InferenceData) -> None:
     assert prior_counts.select(pl.col("variable").unique()).item() == "y", (
         "Prior counts has incorrect variable"
     )
+
+
+def test_get_predictive_model(continuous_idata: az.InferenceData) -> None:
+    """Test get_predictive_model()."""
+    data = continuous_idata
+    columns = ["draw", "obs", "y", "x"]
+
+    posterior_model = get_predictive_model(
+        data, group="posterior_predictive", model_name="y"
+    )
+    assert isinstance(posterior_model, pl.DataFrame), (
+        "Posterior model is not a dataframe"
+    )
+    assert posterior_model.shape == (5000, 4), "Posterior model has incorrect shape"
+    assert posterior_model.columns == columns, (
+        "Posterior model has incorrect columns"
+    )
+
+    prior_model = get_predictive_model(
+        data, group="prior_predictive", model_name="y"
+    )
+    assert isinstance(prior_model, pl.DataFrame), "Prior model is not a dataframe"
+    assert prior_model.shape == (5000, 4), "Prior model has incorrect shape"
+    assert prior_model.columns == columns, "Prior model has incorrect columns"
+
+
+def test_get_predictive_model_raises(continuous_idata: az.InferenceData) -> None:
+    """Test if get_predictive_model raises the correct exception."""
+    data = continuous_idata
+
+    with pytest.raises(ModelNotFoundError):
+        get_predictive_model(data, group="posterior_predictive", model_name="fiets")
