@@ -1,11 +1,17 @@
-from typing import Callable
+from dataclasses import dataclass
 
 import arviz as az
+import hypothesis.strategies as st
 import numpy as np
 import polars as pl
 import pytest
 import xarray as xr
-from numpy.testing import assert_almost_equal
+from hypothesis import given
+from hypothesis.extra.numpy import arrays
+from numpy.testing import (
+    assert_almost_equal,
+    assert_array_almost_equal,
+)
 from pymctools.exceptions import (
     CoordinateNotFoundError,
     GroupNotFoundError,
@@ -16,6 +22,9 @@ from pymctools.utils import (
     center,
     check_coordinates,
     check_group,
+    get_covariance_matrix,
+    get_ellipse,
+    get_ellipse_data,
     get_predictive_counts,
     get_predictive_model,
     get_predictive_summary,
@@ -315,6 +324,9 @@ def test_get_predictive_model_raises(continuous_idata: az.InferenceData) -> None
         get_predictive_model(data, group="posterior_predictive", model_name="fiets")
 
 
+# Testing outlier function
+
+
 def test_outlier_indicators() -> None:
     """Test outlier_indicators()."""
     idata = az.load_arviz_data("centered_eight")
@@ -332,3 +344,150 @@ def test_outlier_indicators_raises(continuous_idata: az.InferenceData) -> None:
     """Test if outlier_indicators() raises the correct exception."""
     with pytest.raises(LogLikelihoodNotFoundError):
         outlier_indicators(continuous_idata)  # pyright: ignore[reportArgumentType]
+
+
+# Testing ellipse functions
+
+
+def cov_direct(rho: float, sigma_x: float, sigma_y: float) -> np.ndarray:
+    """Directly calculate covariance matrix from given values."""
+    return np.asarray(
+        [
+            [sigma_x**2, sigma_x**2 * sigma_y**2 * rho],
+            [sigma_x**2 * sigma_y**2 * rho, sigma_y**2],
+        ]
+    )
+
+
+@dataclass
+class CovarianceStrategy:
+    """Container for generating covariance matrices."""
+
+    rho: float
+    sigma_x: float
+    sigma_y: float
+    cov: np.ndarray
+
+
+@st.composite
+def covariance_strategy(draw: st.DrawFn) -> CovarianceStrategy:
+    """Strategy for generating covariance matrices."""
+    rho = draw(st.floats(0, 1))
+    sigma_x = draw(st.floats(min_value=0, max_value=10))
+    sigma_y = draw(st.floats(min_value=0, max_value=10))
+    cov = cov_direct(rho, sigma_x, sigma_y)
+
+    return CovarianceStrategy(rho, sigma_x, sigma_y, cov)
+
+
+def test_basic_get_covariance_matrix() -> None:
+    """Test get_covariance_matrix()."""
+    rho, sigma_x, sigma_y = 0.3, 0.75, 1.5
+    assert_array_almost_equal(
+        get_covariance_matrix(rho, sigma_x, sigma_y),
+        cov_direct(rho, sigma_x, sigma_y),
+        err_msg="Covariance matrices are not equal.",
+    )
+
+
+@given(s=covariance_strategy())
+def test_get_covariance_matrix(s: CovarianceStrategy) -> None:
+    """Randomised test of get_covariance_matrix."""
+    assert_array_almost_equal(
+        get_covariance_matrix(s.rho, s.sigma_x, s.sigma_y),
+        s.cov,
+        decimal=2,
+        err_msg="Covariance matrices are not equal.",
+    )
+
+
+@dataclass
+class EllipseStrategy:
+    """Container for ellipse strategy outputs."""
+
+    cov: np.ndarray
+    cis: list[float]
+    steps: int
+    mean_x: float
+    mean_y: float
+
+
+@st.composite
+def ellipse_strategy(draw: st.DrawFn) -> EllipseStrategy:
+    """Strategy for testing ellipses."""
+    cov = draw(arrays(np.float64, (2, 2), elements=st.floats(0, 5)))
+    cis = draw(st.lists(st.floats(0, 1), min_size=2, max_size=5, unique=True))
+    steps = draw(st.integers(min_value=10, max_value=100))
+    mean_x = draw(st.floats(min_value=-5, max_value=5))
+    mean_y = draw(st.floats(min_value=-5, max_value=5))
+
+    return EllipseStrategy(cov, cis, steps, mean_x, mean_y)
+
+
+def test_basic_get_ellipse() -> None:
+    """Test get_ellipse()."""
+    cov = np.asarray([[0.56, 0.37], [0.37, 2.25]])
+    ci = 0.89
+    columns = ["order", "x", "y", "confidence_interval"]
+
+    df = get_ellipse(cov, ci)
+
+    assert isinstance(df, pl.DataFrame), "Output is not a polars DataFrame."
+    assert df.columns == columns, "Output does not have the correct columns."
+    assert df["confidence_interval"].unique().item() == "89%", (
+        "Confidence interval is incorrect."
+    )
+    assert len(df) == 100, "Output does not have the correct number of rows."  # noqa: PLR2004
+
+
+@given(s=ellipse_strategy())
+def test_get_ellipse(s: EllipseStrategy) -> None:
+    """Randomised test of get_ellipse()."""
+    columns = ["order", "x", "y", "confidence_interval"]
+    ci = f"{s.cis[0]:.0%}"
+
+    df = get_ellipse(s.cov, s.cis[0], s.steps)
+
+    assert isinstance(df, pl.DataFrame), "Output is not a polars DataFrame."
+    assert df.columns == columns, "Output does not have the correct columns."
+    assert df["confidence_interval"].unique().item() == ci, (
+        "Confidence interval is incorrect"
+    )
+    assert len(df) == s.steps, "Output does not have the correct number of rows."
+
+
+def test_basic_get_ellipse_data() -> None:
+    """Test get_ellipse_data()."""
+    cov = np.asarray([[0.56, 0.37], [0.37, 2.25]])
+    cis = [0.1, 0.5, 0.8, 0.95]
+    columns = ["order", "x", "y", "confidence_interval"]
+    ci = {f"{c:.0%}" for c in cis}
+
+    df = get_ellipse_data(cov)
+
+    assert isinstance(df, pl.DataFrame), "Output is not a polars DataFrame."
+    assert df.columns == columns, "Output does not have the correct columns."
+    assert set(df["confidence_interval"].unique().to_list()) == ci, (
+        "Confidence intervals are incorrect."
+    )
+    assert len(df) == 100 * len(cis), (
+        "Output does not have the correct number of rows."
+    )
+
+
+@given(s=ellipse_strategy())
+def test_get_ellipse_data(s: EllipseStrategy) -> None:
+    """Randomised test of get_ellipse_data()."""
+    columns = ["order", "x", "y", "confidence_interval"]
+    ci = {f"{c:.0%}" for c in s.cis}
+
+    df = get_ellipse_data(s.cov, s.cis, s.mean_x, s.mean_y, s.steps)
+
+    assert isinstance(df, pl.DataFrame), "Output is not a polars DataFrame."
+    assert df.columns == columns, "Output does not have the correct columns."
+    assert set(df["confidence_interval"].unique().to_list()) == ci, (
+        "Confidence intervals are incorrect."
+    )
+    assert len(df) == s.steps * len(s.cis), (
+        "Output does not have the correct number of rows."
+    )

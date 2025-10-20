@@ -293,6 +293,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/65/2a/0553ac2a8af432df92f2ffc05ca97e7ed64e00c97a371b019ae2690de325/hypothesis-6.140.3-py3-none-any.whl", hash = "sha256:a2cfff51641a58a56081f5c90ae1da6ccf3d043404f411805f7f0e0d75742d0e", size = 534534, upload-time = "2025-10-04T22:29:40.635Z" },
 ]
 
+[package.optional-dependencies]
+numpy = [
+    { name = "numpy" },
+]
+
 [[package]]
 name = "idna"
 version = "3.11"
@@ -692,7 +697,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
-    { name = "hypothesis" },
+    { name = "hypothesis", extra = ["numpy"] },
     { name = "pooch" },
     { name = "pytest" },
     { name = "pytest-coverage" },
@@ -709,7 +714,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.31.7" },
-    { name = "hypothesis", specifier = ">=6.140.3" },
+    { name = "hypothesis", extras = ["numpy"], specifier = ">=6.140.3" },
     { name = "pooch", specifier = ">=1.8.2" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-coverage", specifier = ">=0.0" },

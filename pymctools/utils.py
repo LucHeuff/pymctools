@@ -5,6 +5,7 @@ import arviz as az
 import numpy as np
 import polars as pl
 import xarray as xr
+from scipy import stats
 
 from pymctools.exceptions import (
     CoordinateNotFoundError,
@@ -279,7 +280,7 @@ def outlier_indicators(
     # Taking values from the posterior since these are in common to all variables
     n_samples = len(idata["posterior"].mean(("chain", "draw")))
     n_chains = len(idata["posterior"]["chain"])  # only need this once
-    if n_chains == 1:
+    if n_chains == 1:  # pragma: no cover
         reff = 1.0
     else:
         ess_p = az.ess(idata["posterior"], method="mean")
@@ -317,6 +318,79 @@ def outlier_indicators(
     return data
 
 
-# TODO get_covariance_matrix
-# TODO get_ellipse
-# TODO get_ellipse_data
+# --- Calculations for drawing covariance ellipses
+
+
+def get_covariance_matrix(rho: float, sigma_x: float, sigma_y: float) -> np.ndarray:
+    """Calculate 2D covariance matrix.
+
+    Args:
+        rho: correlation
+        sigma_x: standard deviation on x
+        sigma_y: standard deviation on y
+
+    Returns:
+        2D np.ndarray containing covariance matrix
+
+    """
+    cov_xy = sigma_x * sigma_y * rho
+    sigmas = np.asarray([sigma_x, sigma_y])
+    rho_matrix = np.asarray([[1, cov_xy], [cov_xy, 1]])
+    return np.diag(sigmas) @ rho_matrix @ np.diag(sigmas)
+
+
+def get_ellipse(
+    covariance_matrix: np.ndarray, confidence_interval: float, steps: int = 100
+) -> pl.DataFrame:
+    """Get data for plotting one ellipse for this covariance matrix and interval.
+
+    Args:
+        covariance_matrix: np.ndarray with 2D covariance matrix (see also get_covariance_matrix())
+        confidence_interval: interval to draw ellipse at on domain [0, 1]
+        steps (Optional): resolution for drawing the ellipse.
+
+    Returns:
+        pl.DataFrame with x and y positions, ci level and ordering for drawing
+        the covariance ellipse
+
+    """  # noqa: E501
+    ppf = stats.chi2.ppf(confidence_interval, 2)
+    t = np.linspace(0, 2 * np.pi, num=steps)
+
+    eigenvalues, eigenvectors = np.linalg.eig(covariance_matrix)
+
+    rotation = np.column_stack([np.cos(t), np.sin(t)])
+    positions = eigenvectors @ (np.sqrt(ppf * eigenvalues) * rotation).T
+
+    return (
+        pl.DataFrame({"x": positions[0, :], "y": positions[1, :]})
+        .with_columns(confidence_interval=pl.lit(f"{confidence_interval:.0%}"))
+        .with_row_index("order")
+    )
+
+
+def get_ellipse_data(
+    covariance_matrix: np.ndarray,
+    confidence_intervals: list[float] | None = None,
+    mean_x: float = 0,
+    mean_y: float = 0,
+    steps: int = 100,
+) -> pl.DataFrame:
+    """Get data for multiple covariance ellipses for this covariance matrix.
+
+    Args:
+        covariance_matrix: np.ndarray with 2D covariance matrix (see also get_covariance_matrix())
+        confidence_intervals: list of intervals to draw ellipse at on domain [0, 1]
+        mean_x (Optional): x-offset for center of ellipse
+        mean_y (Optional): y-offset for center of ellipse
+        steps (Optional): resolution for drawing the ellipse.
+
+    Returns:
+        pl.DataFrame with x and y positions, ci level and ordering for drawing
+        the covariance ellipse
+    """  # noqa: E501
+    if confidence_intervals is None:
+        confidence_intervals = [0.1, 0.5, 0.8, 0.95]
+    return pl.concat(
+        [get_ellipse(covariance_matrix, ci, steps) for ci in confidence_intervals]
+    ).with_columns(x=pl.col("x") + mean_x, y=pl.col("y") + mean_y)
