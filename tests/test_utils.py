@@ -24,7 +24,7 @@ from pymctools.utils import (
     check_group,
     get_covariance_matrix,
     get_ellipse,
-    get_ellipse_data,
+    get_ellipses,
     get_predictive_counts,
     get_predictive_model,
     get_predictive_summary,
@@ -463,7 +463,7 @@ def test_basic_get_ellipse_data() -> None:
     columns = ["order", "x", "y", "confidence_interval"]
     ci = {f"{c:.0%}" for c in cis}
 
-    df = get_ellipse_data(cov)
+    df = get_ellipses(cov)
 
     assert isinstance(df, pl.DataFrame), "Output is not a polars DataFrame."
     assert df.columns == columns, "Output does not have the correct columns."
@@ -481,7 +481,7 @@ def test_get_ellipse_data(s: EllipseStrategy) -> None:
     columns = ["order", "x", "y", "confidence_interval"]
     ci = {f"{c:.0%}" for c in s.cis}
 
-    df = get_ellipse_data(s.cov, s.cis, s.mean_x, s.mean_y, s.steps)
+    df = get_ellipses(s.cov, s.cis, s.mean_x, s.mean_y, s.steps)
 
     assert isinstance(df, pl.DataFrame), "Output is not a polars DataFrame."
     assert df.columns == columns, "Output does not have the correct columns."

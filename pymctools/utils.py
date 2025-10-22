@@ -369,7 +369,7 @@ def get_ellipse(
     )
 
 
-def get_ellipse_data(
+def get_ellipses(
     covariance_matrix: np.ndarray,
     confidence_intervals: list[float] | None = None,
     mean_x: float = 0,
