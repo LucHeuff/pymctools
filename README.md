@@ -35,7 +35,7 @@ The following convenience functions for common data transformations using [`pola
 
 A conversion function from [`xarray`](https://docs.xarray.dev/en/stable/index.html) is also provided:
 
--  `to_df`: converts xarray.Dataset or xarray.DataArray to a polars.DataFrame
+-  `to_df`: converts `xarray.Dataset` or `xarray.DataArray` to a `polars.DataFrame`
 
 ## Predictive summaries
 The following functions are provided to calculate over prior or posterior predictive samples.
