@@ -13,7 +13,7 @@ or using a [`uv`](https://docs.astral.sh/uv/) project:
 uv add git+https://www.github.com/LucHeuff/pymctools.git
 ```
 
-# Graph functions
+# Graphs
 The package contains the following graph functions:
 
 - `diagnostic_plots`: creates trace and trank plots from `pymc` MCMC samples
