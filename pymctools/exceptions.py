@@ -16,3 +16,11 @@ class ModelNotFoundError(PyMCToolsError):
 
 class LogLikelihoodNotFoundError(PyMCToolsError):
     """Raised when log-likelihood is not found in InferenceData."""
+
+
+class NoPosteriorError(PyMCToolsError):
+    """Raised when no posterior distribution is found in InferenceData."""
+
+
+class VariablesNotFoundError(PyMCToolsError):
+    """Raised when the desired variable is not found in InferenceData."""
