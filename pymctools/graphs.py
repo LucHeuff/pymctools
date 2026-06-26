@@ -5,9 +5,8 @@ from typing import Literal
 import altair as alt
 import numpy as np
 import polars as pl
-from arviz import InferenceData
+import xarray as xr
 from scipy.stats import rankdata
-from xarray import Dataset
 
 from pymctools.exceptions import (
     NoPosteriorError,
@@ -214,14 +213,14 @@ def default_chart_config(chart: Chart) -> Chart:
 InferenceGroup = Literal["posterior", "posterior_predictive", "prior_predictive"]
 
 
-def check_group(data: InferenceData, group: InferenceGroup = "posterior") -> None:
-    """Check if this InferenceData contains a posterior group."""
-    if group not in data:
-        msg = f"Provided InferenceData does not contain {group} samples."
+def check_group(dt: xr.DataTree, group: InferenceGroup = "posterior") -> None:
+    """Check if this xarray.DataTree contains a posterior group."""
+    if group not in dt:
+        msg = f"Provided xarray.DataTree does not contain {group} samples."
         raise NoPosteriorError(msg)
 
 
-def check_variables(dataset: Dataset, variables: list[str] | None) -> list[str]:
+def check_variables(dataset: xr.Dataset, variables: list[str] | None) -> list[str]:
     """Check if the desired variables exist in this dataset.
 
     If variables is empty, returns the available variables instead.
@@ -250,12 +249,12 @@ def check_variables(dataset: Dataset, variables: list[str] | None) -> list[str]:
 
 
 def process_dataset(
-    dataset: Dataset, variables: list[str] | None = None
+    dataset: xr.Dataset, variables: list[str] | None = None
 ) -> pl.DataFrame:
     """Convert PyMC output (xr.Dataset) into a pl.DataFrame for altair to plot.
 
     Args:
-        dataset: xr.Dataset taken from InferenceData
+        dataset: xr.Dataset taken from xarray.DataTree
         variables (Optional): List of variables to take from dataset.
 
     Returns:
@@ -283,18 +282,18 @@ def process_dataset(
         df = to_df(array)
         if set(array.dims) != index:
             # If there are other dimensions present for this variable,
-            # These need to be split out in so they can appear individually
+            # These need to be split out so they can appear individually
             # in posterior distributions.
             # E.g. Effect(group=1, lang=en) etc.
             # Taking columns in order of discovery -> makes sure that everything
             # lines up with the correct levels in the renaming step
             columns = [str(col) for col in array.dims if col not in index]
             # Polars either just returns the value as the column name from a
-            # pivot, or a ste of the values (e.g. {1, 2}) for each of the levels
+            # pivot, or a set of the values (e.g. {1, 2}) for each of the levels
             # This means having to treat the single variable case differently.
             if len(columns) == 1:
                 column = next(iter(columns))
-                pattern = r"(\w+)"
+                pattern = r"^(.*)$"
                 replace = rf"{var}({column}=\1)"
             else:
                 # Dynamically creating the regex pattern based on the number of
@@ -313,22 +312,26 @@ def process_dataset(
             df = df.pivot(index=list(index), on=columns, values=var).rename(
                 rename_columns
             )
-
         dfs.append(df)
 
-    return pl.concat(dfs, how="align")
+    # Vega (the engine making graphs under altair) doesn't sanitize column names
+    # very well, and runs into errors when column names look like JSON formatting.
+    # keeping (, ), =, spaces and comma's  for legibility.
+    return pl.concat(dfs, how="align").rename(
+        lambda col: re.sub(r"[^\w\(\)=\s,]+", "_", col).strip("_")
+    )
 
 
 # --- Plot functions
 
 
 def diagnostic_plots(
-    data: InferenceData, variables: list[str] | None = None, bins: int = 50
+    dt: xr.DataTree, variables: list[str] | None = None, bins: int = 50
 ) -> Chart:
     """Create diagnostics with trace and trank plots for each variable.
 
     Args:
-        data: InferenceData, output from PyMC containing MCMC samples.
+        dt: xr.DataTree, output from PyMC containing MCMC samples.
         variables (Optional): list of variables to plot. Defaults to all.
         bins (Optional): number of bins to use for trank plot.
 
@@ -336,14 +339,15 @@ def diagnostic_plots(
         alt.HConcatChart containing each individual chart
 
     Raises:
-        NoPosteriorError: if no posterior distribution is found in InferenceData
+        NoPosteriorError: if no posterior distribution is found in xarray.DataTree
         NoPyMCError: if data was not generated from PyMC
         VariablesNotFoundError: if any of the variables are missing from the posterior
     """  # noqa: E501
-    check_group(data)
-    dataset = data["posterior"]
+    check_group(dt)
+    dataset = dt.posterior
 
     plot_data = process_dataset(dataset, variables)
+
     variables = [var for var in plot_data.columns if var not in ["chain", "draw"]]
 
     # width and height of plot segments
@@ -399,34 +403,29 @@ def diagnostic_plots(
 
 
 def distribution_plots(
-    data: InferenceData,
+    dt: xr.DataTree,
     variables: list[str] | None = None,
     group: InferenceGroup = "posterior",
-    obs_name: str = "obs",
 ) -> Chart:
     """Plot distributions of MCMC samples.
 
     Args:
-        data: InferenceData from PyMC containing MCMC samples.
+        dt: xr.DataTree, output from PyMC containing MCMC samples.
         variables (Optional): list of variables to plot. Defaults to all.
         group: Whether to plot posterior, posterior_predictive or prior_predictive.
                 Defaults to posterior
-        obs_name (Optional): name of observation indicator. Defaults to 'obs'.
-                             Only relevant for prior and posterior predictive.
 
     Returns:
         alt.HConcatChart containing each individual chart
 
     Raises:
-        NoPosteriorError: if no posterior distribution is found in InferenceData
+        NoPosteriorError: if no posterior distribution is found in xarray.DataTree
         NoPyMCError: if data was not generated from PyMC
         VariablesNotFoundError: if any of the variables are missing from the posterior
 
     """  # noqa: E501
-    check_group(data, group)
-    dataset = data[group]
-    if group in ["posterior_predictive", "prior_predictive"]:
-        dataset = dataset.mean(obs_name)
+    check_group(dt, group)
+    dataset = dt[group].to_dataset()
 
     title_prefix = group.replace("_", " ").capitalize()
 

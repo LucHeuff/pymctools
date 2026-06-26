@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-import arviz as az
+import arviz_base as az
 import hypothesis.strategies as st
 import numpy as np
 import polars as pl
@@ -12,6 +12,7 @@ from numpy.testing import (
     assert_almost_equal,
     assert_array_almost_equal,
 )
+from polars.testing import assert_frame_equal
 from pymctools.exceptions import (
     CoordinateNotFoundError,
     GroupNotFoundError,
@@ -19,6 +20,7 @@ from pymctools.exceptions import (
     ModelNotFoundError,
 )
 from pymctools.utils import (
+    _add_constant_data,
     center,
     check_coordinates,
     check_group,
@@ -130,19 +132,28 @@ def test_dataarray_to_df() -> None:
 
 def test_check_group_raises() -> None:
     """Test whether check_group() raises the correct exception."""
-    idata = az.InferenceData()
+    dt = xr.DataTree()
     group = "prior_predictive"
 
     with pytest.raises(GroupNotFoundError):
-        check_group(idata, group)
+        check_group(dt, group)
 
 
 def test_check_coordinates_raises() -> None:
     """Test whether check_coordinates() raises the correct exception."""
-    idata = az.load_arviz_data("centered_eight")
+    dt = az.load_arviz_data("centered_eight")
     data = pl.DataFrame({"a": [1, 2, 3]})
     with pytest.raises(CoordinateNotFoundError):
-        check_coordinates(idata, data)  # pyright: ignore[reportArgumentType]
+        check_coordinates(dt, data)  # pyright: ignore[reportArgumentType]
+
+
+def test_add_constant_data() -> None:
+    """Test _add_constant_data() returns the same thing as before."""
+    dt = az.load_arviz_data("centered_eight")
+
+    del dt["constant_data"]
+
+    get_predictive_summary(dt, "posterior_predictive")
 
 
 # --- Testing summary functions
@@ -151,11 +162,12 @@ N = 50
 
 
 @pytest.fixture
-def continuous_idata() -> az.InferenceData:
-    """Generate random InferenceData with continuous values."""
+def continuous_dt() -> xr.DataTree:
+    """Generate random xarray.DataTree with continuous values."""
     rng = np.random.default_rng(12345)
-    return az.InferenceData(
-        posterior_predictive=xr.Dataset(
+
+    posterior_predictive = xr.DataTree(
+        xr.Dataset(
             {
                 "y": xr.DataArray(
                     rng.uniform(size=(4, 100, N)),
@@ -166,8 +178,10 @@ def continuous_idata() -> az.InferenceData:
                     },
                 )
             }
-        ),
-        prior_predictive=xr.Dataset(
+        )
+    )
+    prior_predictive = xr.DataTree(
+        xr.Dataset(
             {
                 "y": xr.DataArray(
                     rng.uniform(size=(4, 100, N)),
@@ -178,19 +192,28 @@ def continuous_idata() -> az.InferenceData:
                     },
                 )
             }
-        ),
-        constant_data=xr.Dataset(
+        )
+    )
+    constant_data = xr.DataTree(
+        xr.Dataset(
             {"x": xr.DataArray(rng.uniform(size=N), coords={"obs": np.arange(N)})}
-        ),
+        )
+    )
+    return xr.DataTree(
+        children={
+            "posterior_predictive": posterior_predictive,
+            "prior_predictive": prior_predictive,
+            "constant_data": constant_data,
+        }
     )
 
 
 @pytest.fixture
-def counts_idata() -> az.InferenceData:
-    """Generate random InferenceData with counts values."""
+def counts_dt() -> xr.DataTree:
+    """Generate random xarray.DataTree with counts values."""
     rng = np.random.default_rng(12345)
-    return az.InferenceData(
-        posterior_predictive=xr.Dataset(
+    posterior_predictive = xr.DataTree(
+        xr.Dataset(
             {
                 "y": xr.DataArray(
                     rng.binomial(5, 0.3, size=(4, 100, N)),
@@ -201,8 +224,10 @@ def counts_idata() -> az.InferenceData:
                     },
                 )
             }
-        ),
-        prior_predictive=xr.Dataset(
+        )
+    )
+    prior_predictive = xr.DataTree(
+        xr.Dataset(
             {
                 "y": xr.DataArray(
                     rng.binomial(5, 0.3, size=(4, 100, N)),
@@ -213,16 +238,25 @@ def counts_idata() -> az.InferenceData:
                     },
                 )
             }
-        ),
-        constant_data=xr.Dataset(
+        )
+    )
+    constant_data = xr.DataTree(
+        xr.Dataset(
             {"x": xr.DataArray(rng.uniform(size=N), coords={"obs": np.arange(N)})}
-        ),
+        )
+    )
+    return xr.DataTree(
+        children={
+            "posterior_predictive": posterior_predictive,
+            "prior_predictive": prior_predictive,
+            "constant_data": constant_data,
+        }
     )
 
 
-def test_get_predictive_summary(continuous_idata: az.InferenceData) -> None:
+def test_get_predictive_summary(continuous_dt: xr.DataTree) -> None:
     """Test get_predictive_summary()."""
-    data = continuous_idata
+    data = continuous_dt
     columns = [
         "obs",
         "mean",
@@ -260,9 +294,9 @@ def test_get_predictive_summary(continuous_idata: az.InferenceData) -> None:
     )
 
 
-def test_get_predictive_counts(counts_idata: az.InferenceData) -> None:
+def test_get_predictive_counts(counts_dt: xr.DataTree) -> None:
     """Test get_predictive_counts()."""
-    data = counts_idata
+    data = counts_dt
     columns = ["obs", "value", "count", "frequency", "variable", "x"]
 
     posterior_counts = get_predictive_counts(data, group="posterior_predictive")
@@ -292,9 +326,9 @@ def test_get_predictive_counts(counts_idata: az.InferenceData) -> None:
     )
 
 
-def test_get_predictive_model(continuous_idata: az.InferenceData) -> None:
+def test_get_predictive_model(continuous_dt: xr.DataTree) -> None:
     """Test get_predictive_model()."""
-    data = continuous_idata
+    data = continuous_dt
     columns = ["draw", "obs", "y", "x"]
 
     posterior_model = get_predictive_model(
@@ -316,9 +350,9 @@ def test_get_predictive_model(continuous_idata: az.InferenceData) -> None:
     assert prior_model.columns == columns, "Prior model has incorrect columns"
 
 
-def test_get_predictive_model_raises(continuous_idata: az.InferenceData) -> None:
+def test_get_predictive_model_raises(continuous_dt: xr.DataTree) -> None:
     """Test if get_predictive_model raises the correct exception."""
-    data = continuous_idata
+    data = continuous_dt
 
     with pytest.raises(ModelNotFoundError):
         get_predictive_model(data, group="posterior_predictive", model_name="fiets")
@@ -329,21 +363,29 @@ def test_get_predictive_model_raises(continuous_idata: az.InferenceData) -> None
 
 def test_outlier_indicators() -> None:
     """Test outlier_indicators()."""
-    idata = az.load_arviz_data("centered_eight")
+    dt = az.load_arviz_data("centered_eight")
 
-    outliers = outlier_indicators(idata)  # pyright: ignore[reportArgumentType]
+    outliers = outlier_indicators(dt)
 
-    columns = ["obs", "school", "obs_p_waic", "obs_pareto_k", "scores"]
+    columns = ["school", "sigma", "pareto_k"]
 
     assert isinstance(outliers, pl.DataFrame)
-    assert outliers.shape == (8, 5), "Outliers has incorrect shape"
+    assert outliers.shape == (8, 3), "Outliers has incorrect shape"
     assert outliers.columns == columns, "Outliers has incorrect columns"
 
 
-def test_outlier_indicators_raises(continuous_idata: az.InferenceData) -> None:
-    """Test if outlier_indicators() raises the correct exception."""
+def test_outlier_indicator_raises_group() -> None:
+    """Test if outlier_indicators() raises the correct exception on missing constant data."""  # noqa: E501
+    with pytest.raises(GroupNotFoundError):
+        outlier_indicators(xr.DataTree())
+
+
+def test_outlier_indicators_raises_log_likelihood(
+    continuous_dt: xr.DataTree,
+) -> None:
+    """Test if outlier_indicators() raises the correct exception on missing LogLikelihood."""  # noqa: E501
     with pytest.raises(LogLikelihoodNotFoundError):
-        outlier_indicators(continuous_idata)  # pyright: ignore[reportArgumentType]
+        outlier_indicators(continuous_dt)  # pyright: ignore[reportArgumentType]
 
 
 # Testing ellipse functions
@@ -456,8 +498,8 @@ def test_get_ellipse(s: EllipseStrategy) -> None:
     assert len(df) == s.steps, "Output does not have the correct number of rows."
 
 
-def test_basic_get_ellipse_data() -> None:
-    """Test get_ellipse_data()."""
+def test_basic_get_ellipses() -> None:
+    """Test get_ellipses()."""
     cov = np.asarray([[0.56, 0.37], [0.37, 2.25]])
     cis = [0.1, 0.5, 0.8, 0.95]
     columns = ["order", "x", "y", "confidence_interval"]
@@ -476,8 +518,8 @@ def test_basic_get_ellipse_data() -> None:
 
 
 @given(s=ellipse_strategy())
-def test_get_ellipse_data(s: EllipseStrategy) -> None:
-    """Randomised test of get_ellipse_data()."""
+def test_get_ellipses(s: EllipseStrategy) -> None:
+    """Randomised test of get_ellipses()."""
     columns = ["order", "x", "y", "confidence_interval"]
     ci = {f"{c:.0%}" for c in s.cis}
 

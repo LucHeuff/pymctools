@@ -1,5 +1,5 @@
 import altair as alt
-import arviz as az
+import arviz_base as az
 import numpy as np
 import polars as pl
 import pytest
@@ -42,7 +42,7 @@ def test_default_chart_config(basic_chart: alt.Chart) -> None:
 
 def test_check_group_raises() -> None:
     """Test whether check_posterior() raises the correct exception."""
-    data = az.InferenceData()
+    data = xr.DataTree()
     with pytest.raises(NoPosteriorError):
         check_group(data)
     with pytest.raises(NoPosteriorError):
@@ -127,22 +127,51 @@ def test_process_dataset(dataset: xr.Dataset) -> None:
 
     assert isinstance(df, pl.DataFrame), "Output is not a pl.DataFrame"
     assert df.shape == (30, 11), "Dataframe has the wrong shape"
+    assert len(df.columns) == len(columns), "Incorrect number of columns"
     assert df.columns == columns, "Dataframe has incorrect columns"
 
 
 # ---- Testing plotting functions
 
 
-def test_diagnostic_plots() -> None:
+@pytest.fixture
+def multilevel_datatree() -> xr.DataTree:
+    """xr.DataTree where the variable has more than 1 extra coordinate."""
+    rng = np.random.default_rng(12346)
+    chain = np.arange(4)
+    draw = np.arange(500)
+    var_1 = np.arange(3)
+    var_2 = np.arange(4)
+
+    posterior = xr.DataTree(
+        xr.Dataset(
+            {
+                "alpha": (
+                    ("chain", "draw", "var_1", "var_2"),
+                    rng.normal(size=(4, 500, 3, 4)),
+                )
+            },
+            {"chain": chain, "draw": draw, "var_1": var_1, "var_2": var_2},
+        )
+    )
+
+    return xr.DataTree(children={"posterior": posterior})
+
+
+def test_diagnostic_plots(multilevel_datatree: xr.DataTree) -> None:
     """Test diagnostic_plots()."""
-    data = az.load_arviz_data("classification1d")
+    data = az.load_arviz_data("centered_eight")
 
     diagnostic_plots(data)  # pyright: ignore[reportArgumentType]
 
+    diagnostic_plots(multilevel_datatree)
 
-def test_distribution_plots() -> None:
+
+def test_distribution_plots(multilevel_datatree: xr.DataTree) -> None:
     """Test distribution_plots()."""
-    data = az.load_arviz_data("classification1d")
+    data = az.load_arviz_data("centered_eight")
 
     distribution_plots(data)  # pyright: ignore[reportArgumentType]
-    distribution_plots(data, group="posterior_predictive", obs_name="outcome_dim_0")  # pyright: ignore[reportArgumentType]
+    distribution_plots(data, group="posterior_predictive")  # pyright: ignore[reportArgumentType]
+
+    distribution_plots(multilevel_datatree)

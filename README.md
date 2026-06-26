@@ -1,6 +1,6 @@
 # PyMCTools
 
-Contains tools I've found useful when doing Bayesian Statistics and causal 
+Contains tools I've found useful when doing Bayesian Statistics and causal inference
 using [`pymc`](https://www.pymc.io). 
 
 ## Installation
@@ -46,14 +46,13 @@ Each of these functions returns a `polars` DataFrame.
 - `get_predictive_model`: extracts prior or predictive models given by `model_name`, if you included one using `pm.Deterministic`.
 
 ## Adding outlier indicators
-This function calculates pointwise outlier indicators using PSIS (`pareto_k`) and WAIC (`p_waic`),
+This function calculates pointwise outlier indicators using PSIS (`pareto_k`) 
 and adds these to a `polars` DataFrame indexed along observations.
 
 - `outlier_indicators`: calculates outlier indicators using the `log_likelihood` group. Adds variables from `constant_data` group if present. 
 
 ## Calculating covariance ellipses
 These functions can be used to visualise 2D covariance matrices, when working with multivariate models.
-
 
 - `get_covariance_matrix`: calculate 2D covariance matrix from correlation `rho` and deviations `sigma_x` and `sigma_y`
 - `get_ellipse`: calculate a single covariance ellipse based on covariance matrix and confidence interval. Returns a `polars` DataFrame
